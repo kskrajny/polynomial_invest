@@ -35,7 +35,7 @@ def read_data(instrument_names, date_from=datetime(2019, 1, 1), date_to=datetime
             features = get_ith_features(i, ohlc, candles_num, future_length, tau, normalize)
             if features is None:
                 break
-            X.append(features[0])
+            X.append(np.array(features[0]).flatten())
             y.append(features[1])
             i += 1
     return X, y
@@ -101,7 +101,8 @@ def get_ith_features(i, ohlc, candles_num, future_length, tau, normalize):
                               for a, b in zip(idx[:-1], idx[1:])], 2, full=True)[0]
          for idx in Idx]
     target = target_triple_barrier(ohlc.iloc[len(ohlc) - i - future_length: len(ohlc) - i], tau)
-
+    if np.isnan(x).any():
+        return None
     return [x, target, barriers, curr_date, data_i, Idx]
 
 
