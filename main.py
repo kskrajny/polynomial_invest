@@ -1,19 +1,33 @@
-import numpy as np
+from datetime import datetime, timedelta
+from excel_functions import save_text, create_meta_text
+from single_training import single_training
+import pandas as pd
 
-from classifier import CustomMLPClassifier
-from get_data import read_data
-from sklearn.model_selection import train_test_split
 
-X, y = read_data(["EURUSD_FIVE_MINS", "EURCHF_FIVE_MINS"])
+instrument_list = ["EURUSD_FIVE_MINS", "EURCHF_FIVE_MINS", "AUDCAD_FIVE_MINS", "CADCHF_FIVE_MINS"]
+lr = 0.001
+excel_name = "results/{}.xlsx".format(datetime.now().strftime("%Y%m%d-%H%M%S"))
+delta_list = [
+    #timedelta(days=1),
+    #timedelta(hours=4),
+    timedelta(hours=1),
+    timedelta(minutes=20),
+    timedelta(minutes=5)
+]
+data_delta = timedelta(weeks=30)
+meta_text = create_meta_text(instrument_list, delta_list, data_delta, lr)
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=False)
+df = pd.DataFrame()
 
-clf = CustomMLPClassifier(random_state=1, max_iter=1000, learning_rate="invscaling", learning_rate_init=0.001,
-                          early_stopping=True, verbose=True).fit(X_train, y_train)
+date_from = datetime(2017, 1, 1)
 
-acc, matrix = clf.statistics(X_test, y_test)
+while date_from < datetime(2021, 1, 1):
+    print(date_from.strftime("%d.%m.%Y"))
+    date_to = date_from + data_delta
+    stats = single_training(instrument_list, lr, date_from, date_to, delta_list)
+    df = df.append(stats, ignore_index=True)
+    date_from = date_to
 
-for i, row in enumerate(matrix):
-    print("ACC_{}: {}".format(i, row[i] / sum(row)))
-
-print("ACC: {}".format(acc))
+with pd.ExcelWriter(excel_name, engine='xlsxwriter') as writer:
+    df.to_excel(writer)
+    save_text(writer, meta_text)

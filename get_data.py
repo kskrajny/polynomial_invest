@@ -1,9 +1,6 @@
-from datetime import datetime, timedelta
-
+from datetime import datetime
 import numpy as np
-import torch
 from matplotlib import pyplot as plt
-
 from data_downloader.data_downloader import DataDownloader
 from dotenv import load_dotenv
 import os
@@ -13,56 +10,49 @@ load_dotenv()
 data_downloader = DataDownloader(username=os.environ.get("DB_AIT_USERNAME"),
                                  password=os.environ.get("DB_AIT_PASSWORD"))
 
-delta_list = [
-    # timedelta(days=1),
-    # timedelta(hours=4),
-    timedelta(hours=1),
-    timedelta(minutes=15),
-    timedelta(minutes=5)
-]
 
-
-def read_data(instrument_names, date_from=datetime(2019, 1, 1), date_to=datetime(2019, 1, 28), candles_num=5,
-              tau=0.0003, future_length=20, normalize=True):
+def read_data(instrument_names, date_from=datetime(2019, 1, 1), date_to=datetime(2019, 1, 8), candles_num=5,
+              tau=0.0003, future_length=20, normalize=True, delta_list=None):
     ohlc_list = [data_downloader.get_single_dataframe(instruments=[name],
                                                 date_from=date_from,
                                                 date_to=date_to) for name in instrument_names]
     X = []
     y = []
-    for ohlc in ohlc_list:
-        i = 0
-        while True:
-            features = get_ith_features(i, ohlc, candles_num, future_length, tau, normalize)
+    i = 0
+    while True:
+        for ohlc in ohlc_list:
+            features = get_ith_features(i, ohlc, candles_num, future_length, tau, normalize, delta_list)
             if features is None:
-                break
+                X.reverse(), y.reverse()
+                return X, y
             X.append(np.array(features[0]).flatten())
             y.append(features[1])
-            i += 1
-    return X, y
+        i += 1
 
 
-def show_sample_data(instrument_names=None, date_from=datetime(2019, 1, 1), date_to=datetime(2019, 12, 28),
-                     candles_num=5, tau=0.0003, future_length=20, normalize=False):
-    if instrument_names is None:
-        instrument_names = ["EURUSD_FIVE_MINS"]
-    ohlc = data_downloader.get_single_dataframe(instruments=instrument_names,
+def show_sample_data(instrument_name=None, date_from=datetime(2019, 1, 1), date_to=datetime(2019, 12, 28),
+                     candles_num=5, tau=0.0003, future_length=20, normalize=False, delta_list=None):
+    if instrument_name is None:
+        instrument_name = "EURUSD_FIVE_MINS"
+    ohlc = data_downloader.get_single_dataframe(instruments=[instrument_name],
                                                 date_from=date_from,
                                                 date_to=date_to)
     data = ohlc.close
     data = data[::-1]
-    for i in np.arange(future_length, (data.size / 2), int(data.size / 4)):
+    for i in np.arange(future_length, (data.size / 2), int(data.size / 10)):
         i = int(i)
         x, target, barriers, start_date, data_i, Idx = get_ith_features(i, ohlc, candles_num, future_length, tau,
-                                                                        normalize)
+                                                                        normalize, delta_list)
 
         plt.subplots_adjust(top=0.8)
-        plt.title(instrument_names[0] + "\ntarget {}".format(target) +
+        plt.title(instrument_name + "\ntarget {}".format(target) +
                   "\n{}  -  {}".format(start_date, data.index[i]))
         plt.plot(data_i.values[::-1])
         for idx, pol in zip(Idx, x):
-            x = np.linspace(idx[0], idx[-1])
+            x_plot = np.linspace(idx[0], idx[-1])
+            x = np.linspace(idx[0], idx[-1]) - idx[0]
             y = [np.polyval(pol, i) for i in x]
-            plt.plot(data_i.size - x, y)
+            plt.plot(data_i.size - x_plot, y, linewidth=3)
         for barrier in barriers:
             x = np.linspace(data_i.size - future_length, data_i.size)
             y = [barrier for _ in x]
@@ -71,7 +61,7 @@ def show_sample_data(instrument_names=None, date_from=datetime(2019, 1, 1), date
         plt.close()
 
 
-def get_ith_features(i, ohlc, candles_num, future_length, tau, normalize):
+def get_ith_features(i, ohlc, candles_num, future_length, tau, normalize, delta_list):
     data = ohlc.close
     data = data[::-1]
     Idx = []
@@ -93,13 +83,19 @@ def get_ith_features(i, ohlc, candles_num, future_length, tau, normalize):
     last_close = data_i.iloc[future_length]
     barriers = [last_close * (1 + sign * tau) for sign in [-1, 1]]
     if normalize:
-        mean = data_i.mean()
-        std = data_i.std()
+        mean = data_i[future_length:].mean()
+        std = data_i[future_length:].std()
         data_i = (data_i - mean) / std
         barriers = [(barrier - mean) / std for barrier in barriers]
-    x = [np.polyfit(idx[1:], [data_i.iloc[a:b].mean()
-                              for a, b in zip(idx[:-1], idx[1:])], 2, full=True)[0]
+    x = [np.polyfit(np.array(idx[:-1]) - idx[0], [data_i.iloc[a:b].mean()
+                              for a, b in zip(idx[:-1], idx[1:])], 1, full=True)[0]
          for idx in Idx]
+    '''
+    plt.title("Input & target data")
+    data_i[Idx[0][0]:Idx[0][-1]].plot(color='b')
+    ohlc.iloc[len(ohlc) - i - future_length: len(ohlc) - i].close.plot(color='r')
+    plt.show()
+    '''
     target = target_triple_barrier(ohlc.iloc[len(ohlc) - i - future_length: len(ohlc) - i], tau)
     if np.isnan(x).any():
         return None
