@@ -7,12 +7,13 @@ import os
 
 load_dotenv()
 
-data_downloader = DataDownloader(username=os.environ.get("DB_AIT_USERNAME"),
-                                 password=os.environ.get("DB_AIT_PASSWORD"))
-
 
 def read_data(instrument_names, date_from=datetime(2019, 1, 1), date_to=datetime(2019, 1, 8), candles_num=5,
               tau=0.0003, future_length=20, normalize=True, delta_list=None):
+
+    data_downloader = DataDownloader(username=os.environ.get("DB_AIT_USERNAME"),
+                                     password=os.environ.get("DB_AIT_PASSWORD"))
+
     ohlc_list = [data_downloader.get_single_dataframe(instruments=[name],
                                                 date_from=date_from,
                                                 date_to=date_to) for name in instrument_names]
@@ -34,6 +35,10 @@ def show_sample_data(instrument_name=None, date_from=datetime(2019, 1, 1), date_
                      candles_num=5, tau=0.0003, future_length=20, normalize=False, delta_list=None):
     if instrument_name is None:
         instrument_name = "EURUSD_FIVE_MINS"
+
+    data_downloader = DataDownloader(username=os.environ.get("DB_AIT_USERNAME"),
+                                     password=os.environ.get("DB_AIT_PASSWORD"))
+
     ohlc = data_downloader.get_single_dataframe(instruments=[instrument_name],
                                                 date_from=date_from,
                                                 date_to=date_to)

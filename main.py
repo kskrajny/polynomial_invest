@@ -14,19 +14,20 @@ delta_list = [
     timedelta(minutes=20),
     timedelta(minutes=5)
 ]
-data_delta = timedelta(weeks=30)
+data_delta = timedelta(weeks=5)
 meta_text = create_meta_text(instrument_list, delta_list, data_delta, lr)
 
 df = pd.DataFrame()
 
-date_from = datetime(2017, 1, 1)
+date_from = datetime(2016, 1, 1)
 
 while date_from < datetime(2021, 1, 1):
     print(date_from.strftime("%d.%m.%Y"))
     date_to = date_from + data_delta
     stats = single_training(instrument_list, lr, date_from, date_to, delta_list)
     df = df.append(stats, ignore_index=True)
-    date_from = date_to
+    date_from += timedelta(weeks=51)
+    print(stats)
 
 with pd.ExcelWriter(excel_name, engine='xlsxwriter') as writer:
     df.to_excel(writer)
