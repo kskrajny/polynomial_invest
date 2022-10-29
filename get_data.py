@@ -9,7 +9,7 @@ load_dotenv()
 
 
 def read_data(instrument_names, date_from=datetime(2019, 1, 1), date_to=datetime(2019, 1, 8), candles_num=5,
-              tau=0.0003, future_length=20, normalize=True, delta_list=None):
+              tau=0.0003, future_length=20, normalize=True, delta_list=None, polynomial_degree=2):
 
     data_downloader = DataDownloader(username=os.environ.get("DB_AIT_USERNAME"),
                                      password=os.environ.get("DB_AIT_PASSWORD"))
@@ -22,17 +22,19 @@ def read_data(instrument_names, date_from=datetime(2019, 1, 1), date_to=datetime
     i = 0
     while True:
         for ohlc in ohlc_list:
-            features = get_ith_features(i, ohlc, candles_num, future_length, tau, normalize, delta_list)
+            features = get_ith_features(i, ohlc, candles_num, future_length, tau, normalize, delta_list,
+                                        polynomial_degree)
             if features is None:
                 X.reverse(), y.reverse()
                 return X, y
-            X.append(np.array(features[0]).flatten())
+            X.append(np.arctan(np.array(features[0][:-1]).flatten()))
             y.append(features[1])
         i += 1
 
 
 def show_sample_data(instrument_name=None, date_from=datetime(2019, 1, 1), date_to=datetime(2019, 12, 28),
-                     candles_num=5, tau=0.0003, future_length=20, normalize=False, delta_list=None):
+                     candles_num=5, tau=0.0003, future_length=20, normalize=False, delta_list=None,
+                     polynomial_degree=2):
     if instrument_name is None:
         instrument_name = "EURUSD_FIVE_MINS"
 
@@ -47,7 +49,7 @@ def show_sample_data(instrument_name=None, date_from=datetime(2019, 1, 1), date_
     for i in np.arange(future_length, (data.size / 2), int(data.size / 10)):
         i = int(i)
         x, target, barriers, start_date, data_i, Idx = get_ith_features(i, ohlc, candles_num, future_length, tau,
-                                                                        normalize, delta_list)
+                                                                        normalize, delta_list, polynomial_degree)
 
         plt.subplots_adjust(top=0.8)
         plt.title(instrument_name + "\ntarget {}".format(target) +
@@ -66,7 +68,7 @@ def show_sample_data(instrument_name=None, date_from=datetime(2019, 1, 1), date_
         plt.close()
 
 
-def get_ith_features(i, ohlc, candles_num, future_length, tau, normalize, delta_list):
+def get_ith_features(i, ohlc, candles_num, future_length, tau, normalize, delta_list, polynomial_degree):
     data = ohlc.close
     data = data[::-1]
     Idx = []
@@ -93,7 +95,7 @@ def get_ith_features(i, ohlc, candles_num, future_length, tau, normalize, delta_
         data_i = (data_i - mean) / std
         barriers = [(barrier - mean) / std for barrier in barriers]
     x = [np.polyfit(np.array(idx[:-1]) - idx[0], [data_i.iloc[a:b].mean()
-                              for a, b in zip(idx[:-1], idx[1:])], 1, full=True)[0]
+                              for a, b in zip(idx[:-1], idx[1:])], polynomial_degree, full=True)[0]
          for idx in Idx]
     '''
     plt.title("Input & target data")
@@ -104,29 +106,25 @@ def get_ith_features(i, ohlc, candles_num, future_length, tau, normalize, delta_
     target = target_triple_barrier(ohlc.iloc[len(ohlc) - i - future_length: len(ohlc) - i], tau)
     if np.isnan(x).any():
         return None
-    return [x, target, barriers, curr_date, data_i, Idx]
+    return [x, np.array(target).astype(int), barriers, curr_date, data_i, Idx]
 
 
 def target_triple_barrier(prices, tau):
     last_close = prices.iloc[0, 3]
-    future_ohlc = prices.iloc[1:, :3].values
+    future_ohlc = prices.iloc[1:, :4].values
     changes = future_ohlc / last_close - 1
     up = (changes > tau).any(axis=1)
     down = (changes < -tau).any(axis=1)
     cha = np.stack([up, down]).any(axis=0)
     idx = np.where(cha)[0][0] if cha.any() else -1
     if idx == -1:
-        return 1
+        return 1 if future_ohlc[-1, 3] >= last_close else 0
     elif up[idx] and down[idx]:
-        if changes[idx][0] > tau:
-            return 2
-        elif changes[idx][0] < -tau:
-            return 0
-        else:
+        if changes[idx][1] > tau:
             return 1
+        elif changes[idx][2] < -tau:
+            return 0
     elif up[idx]:
-        return 2
+        return 1
     elif down[idx]:
         return 0
-    else:
-        return 1
