@@ -1,51 +1,67 @@
-import os
-from datetime import datetime
-
 import numpy as np
-from matplotlib import pyplot as plt
-from classifier import CustomMLPClassifier, CustomGradientBoostingClassifier, CustomCatBoostClassifier
-from excel_functions import create_meta_text
+
+from contans_main import classifiers, tresholds
 from get_data import read_data
-from sklearn.model_selection import train_test_split
 import dalex as dx
 
-classifiers = {
-    "XGBoost": lambda: CustomGradientBoostingClassifier(learning_rate=0.01, max_depth=10),
-    "MLP": lambda: CustomMLPClassifier(random_state=1, max_iter=5000, learning_rate="invscaling",
-                                       learning_rate_init=.001, early_stopping=True),
-    "CatBoost": lambda: CustomCatBoostClassifier(iterations=500, early_stopping_rounds=20, learning_rate=0.1, depth=8,
-                                                 verbose=False)
-}
 
+def single_training(instrument_list, date_from_train, date_from_test, date_to_test, delta_list, clf_name, tau,
+                    future_length, polynomial_degree, explain=0, labels=None, global_date_from=None,
+                    global_date_to=None):
 
-def single_training(instrument_list, date_from, date_to, delta_list, clf_name, tau, future_length, polynomial_degree,
-                    explain=False):
-    X, y = read_data(instrument_list, date_from=date_from, date_to=date_to, delta_list=delta_list, tau=tau,
-                     future_length=future_length, polynomial_degree=polynomial_degree)
+    data_train = read_data(instrument_list, date_from=date_from_train, date_to=date_from_test,
+                                          delta_list=delta_list, tau=tau, future_length=future_length,
+                                          polynomial_degree=polynomial_degree, labels=labels,
+                           global_date_from=global_date_from, global_date_to=global_date_to)
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=False)
+    data_test = read_data(instrument_list, date_from=date_from_test, date_to=date_to_test,
+                                            delta_list=delta_list, tau=tau, future_length=future_length,
+                                                   polynomial_degree=polynomial_degree, labels=labels,
+                          global_date_from=global_date_from, global_date_to=global_date_to)
 
-    clf = classifiers[clf_name]().fit(X_train, y_train)
-    acc, matrix, gain, gain_up, gain_down = clf.statistics(X_test, y_test, tau)
-    stats = {"Model": clf_name, "Start": date_from.strftime("%d.%m.%y"), "End": date_to.strftime("%d.%m.%y"),
-             "Acc_down": matrix[0][0] / (matrix[0][0] + matrix[0][1]),
-             "Acc_up": matrix[1][1] / (matrix[1][0] + matrix[1][1]),
-             "Acc": acc, "Gain_%": gain * 100, "Gain_%_up": gain_up * 100, "Gain_%_down": gain_down * 100,
-             "Down": matrix[0][0] + matrix[0][1], "Up": matrix[1][0] + matrix[1][1]}
-    if explain:
-        print("Explaining")
-        print(type(X), np.array(X))
-        explainer = dx.Explainer(clf, np.array(X), verbose=False)
-        explanation_dir_name = "results/exp_{}/".format(datetime.now().strftime("%Y%m%d-%H%M%S"))
-        os.mkdir(explanation_dir_name)
-        txt = create_meta_text(instrument_list, delta_list, date_to - date_from, tau, future_length, polynomial_degree,
-                         date_from)
-        text_file = open(explanation_dir_name + "meta", "w")
-        text_file.write(txt)
-        text_file.close()
-        print("Plotting")
-        for i in range(len(X_test)):
-            explainer.predict_parts(X_test[i], type="shap").plot(max_vars=5)
-            plt.show()
-            #plt.savefig(explanation_dir_name + 'shap_' + str(i))
-    return stats
+    X_train = data_train[labels]
+    y_train = data_train['target'].values
+
+    X_train = X_train.iloc[np.where(y_train != -1)]
+    y_train = np.array([y for y in y_train if y != -1])
+    clf = classifiers[clf_name]().fit(X_train.values, y_train)
+
+    st = []
+    exp_df = None
+    if explain > 0:
+        explainer_train = dx.Explainer(clf, X_train.reset_index().drop(columns=['decision_date']), y_train,
+                                       verbose=False, label=clf_name)
+        exp_df = explainer_train.model_parts().result
+        exp_df.dropout_loss -= exp_df[exp_df['variable'] == '_full_model_']['dropout_loss'].values[0]
+        exp_df.drop(exp_df[exp_df.variable == '_full_model_'].index, inplace=True)
+        exp_df.drop(exp_df[exp_df.variable == '_baseline_'].index, inplace=True)
+
+    for i in range(len(instrument_list)):
+        instrument_data = data_test[data_test['instrument'] == instrument_list[i]]
+        X_test = instrument_data[labels]
+        y_test = instrument_data['target'].values
+        test_len = len(y_test)
+        st_t = []
+        for t in tresholds:
+            acc, matrix, lost_test, gains = clf.statistics(X_test.values, y_test,
+                                                                       instrument_data['potential_gain'], treshold=t)
+            gain = np.sum(gains)
+            acc_up, acc_down, pred_up, pred_down, gain_per_position = 0, 0, 0, 0, 0
+            try:
+                acc_down = matrix[0][0] / (matrix[0][0] + matrix[1][0]) if matrix[0][0] + matrix[1][0] > 0 else 0.5
+                acc_up = matrix[1][1] / (matrix[1][1] + matrix[0][1]) if matrix[1][1] + matrix[0][1] > 0 else 0.5
+                pred_up = matrix[0][0] + matrix[1][0]
+                pred_down = matrix[0][1] + matrix[1][1]
+                gain_per_position = gain / (pred_up + pred_down)
+            except IndexError:
+                pass
+            stats = {"Model": clf_name, "Time_start": date_from_test.strftime("%d.%m.%y"),
+                     "Time_end": date_to_test.strftime("%d.%m.%y"),
+                     "Acc_down": acc_down, "Acc_up": acc_up,
+                     "Acc": acc, "Gain": gain, "Pred_up": pred_up,
+                     "Pred_down": pred_down, "Gain_per_position": gain_per_position,
+                     "Lost_test_%": lost_test / test_len * 100, "Treshold": t}
+            print(lost_test / test_len * 100)
+            st_t.append(stats)
+        st.append(st_t)
+    return st, exp_df

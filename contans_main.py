@@ -1,25 +1,45 @@
 from datetime import timedelta, datetime
+from classifier import ANN, CustomTabNet
 
-instrument_list = ["EURUSD_FIVE_MINS", "EURCHF_FIVE_MINS", "AUDCAD_FIVE_MINS", "CADCHF_FIVE_MINS"]
-excel_name = "results/{}.xlsx".format(datetime.now().strftime("%Y%m%d-%H%M%S"))
+time_stamp = "_ONE_HOUR"
+instrument_list = [x + time_stamp for x in ["EURUSD", "EURCHF", "AUDCAD", "CADCHF"]]
+
+now = datetime.now().strftime("%Y%m%d-%H%M%S")
+results_dir = "results/{}/".format(now)
+
+file_names = [
+    results_dir + instrument for instrument in instrument_list
+]
+
 delta_list = [
-    # timedelta(days=1),
-    # timedelta(hours=4),
-    timedelta(hours=1),
-    timedelta(minutes=20),
-    timedelta(minutes=5)
+    timedelta(hours=16),
+    timedelta(hours=8),
+    timedelta(hours=4)
 ]
+
 clf_names = [
-    "XGBoost",
+    "TabNet",
     "MLP",
-    "CatBoost"
+    "MLP1",
+    "MLP2"
 ]
-data_delta = timedelta(days=16)
-tau = 0.0003
-future_length = 20
+
+classifiers = {
+    'MLP': lambda: ANN([len(delta_list) * polynomial_degree, 128, 2]),
+    'MLP1': lambda: ANN([len(delta_list) * polynomial_degree, 64, 2]),
+    'MLP2': lambda: ANN([len(delta_list) * polynomial_degree, 16, 2]),
+    'TabNet': lambda: CustomTabNet()
+}
+
+data_delta_days = 180
+tau = 0.0017
+future_length = 15
 polynomial_degree = 2
 
 start_date = datetime(2013, 1, 1)
 final_date = datetime(2021, 12, 31)
 
-skip_time = timedelta(days=4)
+skip_time_days = 60
+explain = 1
+
+tresholds = [0.5, 0.504, 0.508, 0.512]
