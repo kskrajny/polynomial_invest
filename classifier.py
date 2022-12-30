@@ -23,14 +23,15 @@ def predict_with_treshold(p, t):
         return -2
 
 
-def statistics_universal(self, X, y, potential_gains, sample_weight=None, treshold=0.5):
+def statistics_universal(self, X, y, potential_gains, spread, treshold=0.5, max_spread=1000, sample_weight=None):
     proba = self.predict_proba(X)
     pred = np.array([predict_with_treshold(p[1], treshold) for p in proba], dtype=np.float)
-    measurable_y = y[np.all([y != -1, pred != -2], axis=0)].flatten()
-    measurable_pred = pred[np.all([y != -1, pred != -2], axis=0)].flatten()
+    measurable_y = y[np.all([y != -1, pred != -2, spread < max_spread], axis=0)].flatten()
+    measurable_pred = pred[np.all([y != -1, pred != -2, spread < max_spread], axis=0)].flatten()
     lost_test = len(y) - len(measurable_y)
     gains = [
-        int(map_(t == p) * g * 10000) if p != -2 else 0 for t, p, g in zip(y, pred, potential_gains)
+        int(map_(t == p) * g * 10000) if p != -2 and s < max_spread else 0 for t, p, g, s in
+        zip(y, pred, potential_gains, spread)
     ]
     return (
         accuracy_score(measurable_y, measurable_pred, sample_weight=sample_weight),
@@ -56,10 +57,11 @@ class CustomDataset(Dataset):
 
 
 class ANN(nn.Module):
-    def __init__(self, dims, device='cuda:0'):
+    def __init__(self, dims, lr, device='cuda:0'):
         super().__init__()
         self.batch_size = 256
-        self.max_epochs = 200
+        self.max_epochs = 1000
+        self.lr = lr
         self.device = device
         self.loss_function = nn.CrossEntropyLoss()
         self.activation = nn.ReLU()
@@ -76,15 +78,23 @@ class ANN(nn.Module):
             x = module(x)
         return x
 
-    def fit(self, X_train, y_train):
+    def fit(self, X_train, y_train, class_balance):
         last_loss = 100
-        patience = 3
+        patience = 10
         trigger_times = 0
-        optimizer = optim.Adam(self.parameters(), lr=.0001)
+        optimizer = optim.Adam(self.parameters(), lr=self.lr)
         dataset = CustomDataset(X_train, y_train)
         train_size = int(len(dataset) * 0.8)
         train_dataset, val_dataset = random_split(dataset, [train_size, len(dataset) - train_size])
-        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
+        y = np.array(list(zip(*train_dataset))[1])
+        weights = torch.DoubleTensor([1. for _ in y])
+        if class_balance:
+            class_sample_count = np.array(
+                [len(np.where(y == t)[0]) for t in np.unique(y)])
+            samples_weight = np.array([1. / class_sample_count[int(t)] for t in y])
+            weights = torch.DoubleTensor(samples_weight)
+        sampler = torch.utils.data.sampler.WeightedRandomSampler(weights, len(weights))
+        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=self.batch_size, sampler=sampler)
         valid_loader = torch.utils.data.DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False)
         for epoch in range(1, self.max_epochs):
             self.train()
@@ -105,8 +115,9 @@ class ANN(nn.Module):
             last_loss = current_loss
         return self
 
-    def statistics(self, X, y, potential_gains, sample_weight=None, treshold=0.5):
-        return statistics_universal(self, X, y, potential_gains, sample_weight=sample_weight, treshold=treshold)
+    def statistics(self, X, y, potential_gains, spread, treshold=0.5, max_spread=1000, sample_weight=None):
+        return statistics_universal(self, X, y, potential_gains, spread, treshold=treshold, max_spread=max_spread,
+                                    sample_weight=sample_weight)
 
     def _validation(self, valid_loader):
         self.eval()
@@ -138,16 +149,16 @@ class CustomTabNet(TabNetClassifier):
         super().__init__(verbose=0, n_d=64, n_a=64)
         self.softmax = nn.Softmax(dim=-1)
 
-    def statistics(self, X, y, potential_gains, sample_weight=None, treshold=0.5):
-        return statistics_universal(self, X, y, potential_gains, sample_weight=sample_weight, treshold=treshold)
+    def statistics(self, X, y, potential_gains, spread, treshold=0.5, max_spread=1000, sample_weight=None):
+        return statistics_universal(self, X, y, potential_gains, spread, treshold=treshold,
+                                    max_spread=max_spread, sample_weight=sample_weight)
 
-    def fit(self, X_train, y_train, *kwargs):
+    def fit(self, X_train, y_train, class_balance, *kwargs):
         X_train, X_valid, y_train, y_valid = train_test_split(X_train, y_train, train_size=0.8, test_size=0.2,
                                                               shuffle=True)
-
         unsupervised_model = TabNetPretrainer(
             optimizer_fn=torch.optim.Adam,
-            optimizer_params=dict(lr=.0001),
+            optimizer_params=dict(lr=.00005),
             mask_type='entmax',
             verbose=0,
             n_d=64,
@@ -157,8 +168,8 @@ class CustomTabNet(TabNetClassifier):
             X_train=X_train,
             eval_set=[X_valid],
             batch_size=256,
-            max_epochs=200,
-            pretraining_ratio=0.8
+            max_epochs=1000,
+            pretraining_ratio=0.8,
         )
         super(TabNetClassifier, self).fit(
             X_train=X_train, y_train=y_train,
@@ -166,8 +177,9 @@ class CustomTabNet(TabNetClassifier):
             eval_name=['train', 'valid'],
             eval_metric=['auc'],
             batch_size=256,
-            max_epochs=200,
+            max_epochs=1000,
             from_unsupervised=unsupervised_model,
+            weights=class_balance
         )
         return self
 

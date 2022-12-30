@@ -1,27 +1,28 @@
 import os
 import pandas as pd
 import plotly.express as px
-import dalex as dx
-from contans_main import results_dir, clf_names, classifiers
 
 
 def save_text(writer, text):
     worksheet = writer.sheets['Sheet1']
 
     options = {
-        'height': 400,
+        'height': 600,
         'width': 150
     }
 
     worksheet.insert_textbox('O2', text, options)
 
 
-def create_meta_text(instrument_list, delta_list, data_delta, tau, future_length, polynomial_degree, date_from=None,
-                     skip_time_days=None):
+def create_meta_text(instrument_list, delta_list, data_delta, tau, future_length, polynomial_degree, candle_num,
+                     class_balance, feature_eng_name, date_from=None, skip_time_days=None):
     text = "Data delta:\n" + str(data_delta).split('.')[0]
     text += "\n\nTau:  " + str(tau)
     text += "\n\nFuture length:  " + str(future_length)
+    text += "\n\nCandle num:  " + str(candle_num)
     text += "\n\nPolynomial degree:  " + str(polynomial_degree)
+    text += "\n\nFeature engineering:  " + feature_eng_name
+    text += "\n\nClass balance:  " + str(class_balance)
     text += "\n\nInstruments:"
     for name in instrument_list:
         name = name.split('_')[0]
@@ -54,7 +55,7 @@ def save_rolling_stats(sheet_name, df, writer):
     worksheet.insert_chart('G2', chart)
 
 
-def save_results(dfs, exp_df, file_names, meta_text, future_length, roll=2):
+def save_results(dfs, exp_df, file_names, meta_text, future_length, results_dir, clf_names, roll=3):
     os.mkdir(results_dir)
     for df, file_name, clf_name in zip(dfs, file_names, clf_names):
         df = df.set_index('Time_start')

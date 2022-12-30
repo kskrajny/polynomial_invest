@@ -19,7 +19,7 @@ delta_list = [
 ]
 
 clf_names = [
-    "TabNet",
+    #"TabNet",
     "MLP",
     "MLP2",
     "MLPD",
@@ -37,21 +37,22 @@ classifiers = {
     'TabNet': lambda: CustomTabNet()
 }
 
-data_delta_days = 50
-tau = 0.005
-future_length = 40
-polynomial_degree = 2
-candle_num = 10
 
-start_date = datetime(2017, 1, 1)
+data_delta_days = 30
+tau = 0.005
+future_length = 10
+polynomial_degree = 2
+candle_num = 5
+
+start_date = datetime(2021, 11, 1)
 final_date = datetime(2021, 12, 31)
 
-skip_time_days = 20
+skip_time_days = 10
 explain = 1
 
 tresholds = [0.5]
 
-class_balance = True
+class_balance = False
 
 feature_eng_name = "feature_eng_partial_square"
 
@@ -66,4 +67,4 @@ for delta in delta_list:
         labels.append("{}_{}".format(str(delta).split('.')[0], polynomial_degree - j))
     labels.append("{}_mul".format(str(delta).split('.')[0]))
 
-spread_q = 0.75
+spread_q = 1

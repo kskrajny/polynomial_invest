@@ -51,7 +51,7 @@ class DataDownloader:
     def __init__(self,
                  username: str,
                  password: str,
-                 db_address: str = "192.168.11.128:3308",
+                 db_address: str = "192.168.9.176:3409",
                  provider: str = 'OANDA'):
         """A class for downloading data from db
         :param username: Username to input into db_connection string
@@ -65,14 +65,15 @@ class DataDownloader:
 
         # DB connection and setup session
         self._process_name = "data_downloader"
-        self._db_connection_string = f"mysql://{username}:{password}@{db_address}/ait"
+        self._db_connection_string = f"mysql://{username}:{password}@{db_address}/superbar"
         self._session_connector = SQLSessionConnector()
         self._session = self._session_connector.sql_session(self._db_connection_string,
                                                             self._process_name)
 
         # Setup column names and index values for SQL queries
         self._instrument_map = {
-            "OHLC": {"index": "timestamp", "cols": ["timestamp", "open", "high", "low", "close", "dayofweek","volume"]},
+            "OHLC": {"index": "timestamp", "cols": ["timestamp", "bid_open", "bid_high", "bid_low", "bid_close",
+                                                    "ask_open", "ask_high", "ask_low", "ask_close"]},
             "FOREX_CALENDAR": {"index": "datetime",
                                "cols": ["datetime", "time", "currency", "impact", "event", "actual",
                                         "forecast", "previous", "actual_diff", "previous_diff"]},
@@ -192,10 +193,11 @@ class DataDownloader:
         """
         
         return  "( " \
-               "SELECT barTimestamp AS DATE, OPEN, high, low, CLOSE, dayofweek, volume " \
-               "FROM aitbars.{instrument} " \
-               "WHERE (barTimestamp >= '{date_from}' AND barTimestamp <= '{date_to}') AND provider = '{provider}' " \
-               "ORDER BY barTimestamp" \
+               "SELECT indicatorTimestamp as date, bid_open, bid_high, bid_low, bid_close, " \
+               "ask_open, ask_high, ask_low, ask_close " \
+               "FROM superbar.{instrument} " \
+               "WHERE (indicatorTimestamp >= '{date_from}' AND indicatorTimestamp <= '{date_to}') " \
+               "ORDER BY indicatorTimestamp" \
                ")"
 
     @staticmethod
@@ -204,7 +206,7 @@ class DataDownloader:
         """
         return "( " \
                "SELECT {columns_str} " \
-               "FROM aitbars.{instrument} " \
+               "FROM superbar.{instrument} " \
                "WHERE ({date_col} >= '{date_from}' AND {date_col} <= '{date_to}')  " \
                "ORDER BY {date_col} " \
                ") "
