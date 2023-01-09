@@ -16,14 +16,13 @@ def read_data(instrument_names, date_from=None, date_to=None, candle_num=5,
               global_date_from=None, global_date_to=None, labels=None, feature_eng=None):
     global processed_data
 
-    if True:
+    if processed_data is None:
         print("Get data")
         data_downloader = DataDownloader(username=os.environ.get("DB_AIT_USERNAME"),
                                          password=os.environ.get("DB_AIT_PASSWORD"))
-
         ohlc = [data_downloader.get_single_dataframe(instruments=[name],
-                                                     date_from=date_from,
-                                                     date_to=date_to) for name in instrument_names]
+                                                     date_from=global_date_from,
+                                                     date_to=global_date_to) for name in instrument_names]
         print('Gather data')
         processed_data = gather(instrument_names, ohlc, candle_num, future_length, tau, normalize, delta_list,
                          polynomial_degree, labels, feature_eng)
@@ -84,11 +83,12 @@ def get_ith_features(i, ohlc, candle_num, future_length, tau, normalize, delta_l
     x = [np.polyfit(np.array(idx[:-1]) - idx[0], [data_i.iloc[a:b, 3].mean()
                                                   for a, b in zip(idx[:-1], idx[1:])], polynomial_degree, full=True)[0]
          for idx in Idx]
-    target, potential_gain, spread = target_triple_barrier(ohlc.iloc[len(ohlc) - i - future_length - 1: len(ohlc) - i],
+    target, potential_gain, spread, commission = target_triple_barrier(ohlc.iloc[len(ohlc) - i - future_length - 1: len(ohlc) - i],
                                                    tau, test=test)
     if np.isnan(x).any():
         return None, None, None
-    d_dict = {'target': int(target), 'decision_date': data.index[i], 'potential_gain': potential_gain, 'spread': spread}
+    d_dict = {'target': int(target), 'decision_date': data.index[i], 'potential_gain': potential_gain,
+              'spread': spread, 'commission': commission, 'usd_per_pips': data.usdPerPips.iloc[i]}
     return x, d_dict, [barriers, data_i, Idx]
 
 
@@ -104,19 +104,23 @@ def target_triple_barrier(prices, tau, test=False,):
     cha = np.stack([long, short]).any(axis=0)
     idx = np.where(cha)[0][0] if cha.any() else -1
     spread = last_close_long - last_close_short
+    commission_up = last_close_long * (2 + tau) * 0.3
+    commission_down = last_close_short * (2 - tau) * 0.3
     if idx == -1:
+        commission_up = last_close_long * 0.3 + future_ohlc_long[-1, 3] * 0.3
+        commission_down = last_close_short * 0.3 + future_ohlc_short[-1, 3] * 0.3
         if test:
-            return -1, 0, spread
+            return -1, 0, spread, 0
         elif future_ohlc_long[-1, 3] > last_close_long:
-            return 1, future_ohlc_long[-1, 3] - last_close_long, spread
+            return 1, future_ohlc_long[-1, 3] - last_close_long, spread, commission_up
         else:
-            return 0, last_close_short - future_ohlc_short[-1, 3], spread
+            return 0, last_close_short - future_ohlc_short[-1, 3], spread, commission_down
     elif long[idx] and short[idx]:
-        return -1, last_close_long * tau, spread
+        return -1, last_close_long * tau, spread, (commission_down + commission_up) / 2
     elif long[idx]:
-        return 1, last_close_long * tau, spread
+        return 1, last_close_long * tau, spread, commission_up
     elif short[idx]:
-        return 0, last_close_short * tau, spread
+        return 0, last_close_short * tau, spread, commission_down
 
 
 def show_sample_data(instrument_name=None, date_from=datetime(2013, 1, 1), date_to=datetime(2021, 12, 28),

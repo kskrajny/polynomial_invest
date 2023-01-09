@@ -3,42 +3,10 @@ import pandas as pd
 import torch
 from pytorch_tabnet.pretraining import TabNetPretrainer
 from pytorch_tabnet.tab_model import TabNetClassifier
-from sklearn.metrics import accuracy_score, confusion_matrix
 from sklearn.model_selection import train_test_split
 from torch import nn
 from torch.utils.data import Dataset, random_split
 import torch.optim as optim
-
-
-def map_(x: bool):
-    return 1 if x else -1
-
-
-def predict_with_treshold(p, t):
-    if p <= 1 - t:
-        return 0
-    elif p >= t:
-        return 1
-    else:
-        return -2
-
-
-def statistics_universal(self, X, y, potential_gains, spread, treshold=0.5, max_spread=1000, sample_weight=None):
-    proba = self.predict_proba(X)
-    pred = np.array([predict_with_treshold(p[1], treshold) for p in proba], dtype=np.float)
-    measurable_y = y[np.all([y != -1, pred != -2, spread < max_spread], axis=0)].flatten()
-    measurable_pred = pred[np.all([y != -1, pred != -2, spread < max_spread], axis=0)].flatten()
-    lost_test = len(y) - len(measurable_y)
-    gains = [
-        int(map_(t == p) * g * 10000) if p != -2 and s < max_spread else 0 for t, p, g, s in
-        zip(y, pred, potential_gains, spread)
-    ]
-    return (
-        accuracy_score(measurable_y, measurable_pred, sample_weight=sample_weight),
-        confusion_matrix(measurable_y, measurable_pred, labels=None),
-        lost_test,
-        gains
-    )
 
 
 class CustomDataset(Dataset):
@@ -115,10 +83,6 @@ class ANN(nn.Module):
             last_loss = current_loss
         return self
 
-    def statistics(self, X, y, potential_gains, spread, treshold=0.5, max_spread=1000, sample_weight=None):
-        return statistics_universal(self, X, y, potential_gains, spread, treshold=treshold, max_spread=max_spread,
-                                    sample_weight=sample_weight)
-
     def _validation(self, valid_loader):
         self.eval()
         loss_total = 0
@@ -148,10 +112,6 @@ class CustomTabNet(TabNetClassifier):
     def __init__(self):
         super().__init__(verbose=0, n_d=64, n_a=64)
         self.softmax = nn.Softmax(dim=-1)
-
-    def statistics(self, X, y, potential_gains, spread, treshold=0.5, max_spread=1000, sample_weight=None):
-        return statistics_universal(self, X, y, potential_gains, spread, treshold=treshold,
-                                    max_spread=max_spread, sample_weight=sample_weight)
 
     def fit(self, X_train, y_train, class_balance, *kwargs):
         X_train, X_valid, y_train, y_valid = train_test_split(X_train, y_train, train_size=0.8, test_size=0.2,

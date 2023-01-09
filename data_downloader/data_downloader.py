@@ -73,7 +73,7 @@ class DataDownloader:
         # Setup column names and index values for SQL queries
         self._instrument_map = {
             "OHLC": {"index": "timestamp", "cols": ["timestamp", "bid_open", "bid_high", "bid_low", "bid_close",
-                                                    "ask_open", "ask_high", "ask_low", "ask_close"]},
+                                                    "ask_open", "ask_high", "ask_low", "ask_close", "usdPerPips"]},
             "FOREX_CALENDAR": {"index": "datetime",
                                "cols": ["datetime", "time", "currency", "impact", "event", "actual",
                                         "forecast", "previous", "actual_diff", "previous_diff"]},
@@ -194,7 +194,7 @@ class DataDownloader:
         
         return  "( " \
                "SELECT indicatorTimestamp as date, bid_open, bid_high, bid_low, bid_close, " \
-               "ask_open, ask_high, ask_low, ask_close " \
+               "ask_open, ask_high, ask_low, ask_close, usdPerPips " \
                "FROM superbar.{instrument} " \
                "WHERE (indicatorTimestamp >= '{date_from}' AND indicatorTimestamp <= '{date_to}') " \
                "ORDER BY indicatorTimestamp" \
